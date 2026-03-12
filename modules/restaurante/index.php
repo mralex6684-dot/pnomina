@@ -4,11 +4,8 @@ requiereLogin();
 $db = getDB();
 $pageTitle = 'Restaurante';
 
-// AJAX
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    header('Content-Type: application/json');
-    $action = $_POST['action'] ?? '';
-
+// Crear tabla si no existe
+function crearTablaConfig($db) {
     if (!$db->query("SHOW TABLES LIKE 'restaurante_config'")->fetch()) {
         $db->exec("CREATE TABLE restaurante_config (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -26,41 +23,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         )");
         $db->exec("INSERT INTO restaurante_config (nombre) VALUES ('Mi Restaurante')");
     }
+}
+
+crearTablaConfig($db);
+
+// AJAX
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    $action = $_POST['action'] ?? '';
 
     if ($action === 'guardar_config') {
-        $db->prepare("UPDATE restaurante_config SET nombre=?,nit=?,direccion=?,telefono=?,email=?,ciudad=?,representante=?,periodicidad_nomina=?,salario_minimo=?,auxilio_transporte=? LIMIT 1")
-           ->execute([trim($_POST['nombre']??''),trim($_POST['nit']??''),trim($_POST['direccion']??''),trim($_POST['telefono']??''),trim($_POST['email']??''),trim($_POST['ciudad']??''),trim($_POST['representante']??'),$_POST['periodicidad_nomina']??'mensual',(float)str_replace(['.', ','], ['', '.'], $_POST['salario_minimo']??'1300000'),(float)str_replace(['.', ','], ['', '.'], $_POST['auxilio_transporte']??'162000')]);
-        registrarHistorial('config_restaurante','restaurante','Configuración actualizada');
-        echo json_encode(['ok'=>true,'msg'=>'Configuración guardada correctamente']);
+        $nombre              = trim($_POST['nombre'] ?? '');
+        $nit                 = trim($_POST['nit'] ?? '');
+        $direccion           = trim($_POST['direccion'] ?? '');
+        $telefono            = trim($_POST['telefono'] ?? '');
+        $email               = trim($_POST['email'] ?? '');
+        $ciudad              = trim($_POST['ciudad'] ?? '');
+        $representante       = trim($_POST['representante'] ?? '');
+        $periodicidad        = $_POST['periodicidad_nomina'] ?? 'mensual';
+        $salario_minimo      = (float)str_replace(['.', ','], ['', '.'], $_POST['salario_minimo'] ?? '1300000');
+        $auxilio_transporte  = (float)str_replace(['.', ','], ['', '.'], $_POST['auxilio_transporte'] ?? '162000');
+
+        try {
+            $db->prepare("UPDATE restaurante_config SET nombre=?,nit=?,direccion=?,telefono=?,email=?,ciudad=?,representante=?,periodicidad_nomina=?,salario_minimo=?,auxilio_transporte=? LIMIT 1")
+               ->execute([$nombre, $nit, $direccion, $telefono, $email, $ciudad, $representante, $periodicidad, $salario_minimo, $auxilio_transporte]);
+            registrarHistorial('config_restaurante', 'restaurante', 'Configuración actualizada');
+            echo json_encode(['ok' => true, 'msg' => 'Configuración guardada correctamente']);
+        } catch (PDOException $e) {
+            echo json_encode(['ok' => false, 'msg' => 'Error: ' . $e->getMessage()]);
+        }
         exit;
     }
 }
 
-// Crear tabla si no existe
-if (!$db->query("SHOW TABLES LIKE 'restaurante_config'")->fetch()) {
-    $db->exec("CREATE TABLE restaurante_config (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        nombre VARCHAR(100) DEFAULT 'Mi Restaurante',
-        nit VARCHAR(30), direccion VARCHAR(200), telefono VARCHAR(30),
-        email VARCHAR(100), ciudad VARCHAR(100), representante VARCHAR(100),
-        periodicidad_nomina ENUM('mensual','quincenal','semanal') DEFAULT 'mensual',
-        salario_minimo DECIMAL(15,2) DEFAULT 1300000,
-        auxilio_transporte DECIMAL(15,2) DEFAULT 162000,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    )");
-    $db->exec("INSERT INTO restaurante_config (nombre) VALUES ('Mi Restaurante')");
-}
-
-$config = $db->query("SELECT * FROM restaurante_config LIMIT 1")->fetch();
-
-// Estadísticas del restaurante
-$totalEmp      = $db->query("SELECT COUNT(*) FROM empleados WHERE activo=1")->fetchColumn();
-$totalCargos   = $db->query("SELECT COUNT(*) FROM cargos WHERE activo=1")->fetchColumn();
-$masaCostoMes  = $db->query("SELECT COALESCE(SUM(salario),0) FROM empleados WHERE activo=1")->fetchColumn();
-$porDepto      = $db->query("SELECT c.departamento, COUNT(e.id) as total FROM empleados e JOIN cargos c ON e.cargo_id=c.id WHERE e.activo=1 GROUP BY c.departamento ORDER BY total DESC")->fetchAll();
+$config   = $db->query("SELECT * FROM restaurante_config LIMIT 1")->fetch();
+$totalEmp = $db->query("SELECT COUNT(*) FROM empleados WHERE activo=1")->fetchColumn();
+$totalCargos  = $db->query("SELECT COUNT(*) FROM cargos WHERE activo=1")->fetchColumn();
+$masaCostoMes = $db->query("SELECT COALESCE(SUM(salario),0) FROM empleados WHERE activo=1")->fetchColumn();
+$porDepto     = $db->query("SELECT c.departamento, COUNT(e.id) as total FROM empleados e JOIN cargos c ON e.cargo_id=c.id WHERE e.activo=1 GROUP BY c.departamento ORDER BY total DESC")->fetchAll();
 
 include __DIR__ . '/../../includes/header.php';
 ?>
+
 <div class="page-header">
   <h1 class="page-title">Restaurante</h1>
   <p class="page-subtitle">Configuración general del establecimiento</p>
@@ -72,36 +76,36 @@ include __DIR__ . '/../../includes/header.php';
 <div class="card">
   <div class="card-header"><span class="card-title">Datos del Restaurante</span></div>
   <form id="formConfig" onsubmit="guardarConfig(event)">
-    <div class="modal-body" style="padding:24px">
+    <div style="padding:24px">
       <input type="hidden" name="action" value="guardar_config">
       <div class="form-grid">
         <div class="form-group">
           <label class="form-label">Nombre del restaurante *</label>
-          <input type="text" name="nombre" class="form-control" value="<?=htmlspecialchars($config['nombre']??'')?>" required>
+          <input type="text" name="nombre" class="form-control" value="<?= htmlspecialchars($config['nombre'] ?? '') ?>" required>
         </div>
         <div class="form-group">
           <label class="form-label">NIT</label>
-          <input type="text" name="nit" class="form-control" placeholder="900.123.456-7" value="<?=htmlspecialchars($config['nit']??'')?>">
+          <input type="text" name="nit" class="form-control" placeholder="900.123.456-7" value="<?= htmlspecialchars($config['nit'] ?? '') ?>">
         </div>
         <div class="form-group">
           <label class="form-label">Representante Legal</label>
-          <input type="text" name="representante" class="form-control" value="<?=htmlspecialchars($config['representante']??'')?>">
+          <input type="text" name="representante" class="form-control" value="<?= htmlspecialchars($config['representante'] ?? '') ?>">
         </div>
         <div class="form-group">
           <label class="form-label">Ciudad</label>
-          <input type="text" name="ciudad" class="form-control" placeholder="Bogotá, Colombia" value="<?=htmlspecialchars($config['ciudad']??'')?>">
+          <input type="text" name="ciudad" class="form-control" placeholder="Bogotá, Colombia" value="<?= htmlspecialchars($config['ciudad'] ?? '') ?>">
         </div>
         <div class="form-group" style="grid-column:span 2">
           <label class="form-label">Dirección</label>
-          <input type="text" name="direccion" class="form-control" placeholder="Calle 123 # 45-67" value="<?=htmlspecialchars($config['direccion']??'')?>">
+          <input type="text" name="direccion" class="form-control" placeholder="Calle 123 # 45-67" value="<?= htmlspecialchars($config['direccion'] ?? '') ?>">
         </div>
         <div class="form-group">
           <label class="form-label">Teléfono</label>
-          <input type="text" name="telefono" class="form-control" value="<?=htmlspecialchars($config['telefono']??'')?>">
+          <input type="text" name="telefono" class="form-control" value="<?= htmlspecialchars($config['telefono'] ?? '') ?>">
         </div>
         <div class="form-group">
           <label class="form-label">Email</label>
-          <input type="email" name="email" class="form-control" value="<?=htmlspecialchars($config['email']??'')?>">
+          <input type="email" name="email" class="form-control" value="<?= htmlspecialchars($config['email'] ?? '') ?>">
         </div>
       </div>
 
@@ -111,18 +115,18 @@ include __DIR__ . '/../../includes/header.php';
           <div class="form-group">
             <label class="form-label">Periodicidad de pago</label>
             <select name="periodicidad_nomina" class="form-control">
-              <option value="mensual"   <?=($config['periodicidad_nomina']??'')==='mensual'  ?'selected':''?>>Mensual</option>
-              <option value="quincenal" <?=($config['periodicidad_nomina']??'')==='quincenal'?'selected':''?>>Quincenal</option>
-              <option value="semanal"   <?=($config['periodicidad_nomina']??'')==='semanal'  ?'selected':''?>>Semanal</option>
+              <option value="mensual"   <?= ($config['periodicidad_nomina'] ?? '') === 'mensual'   ? 'selected' : '' ?>>Mensual</option>
+              <option value="quincenal" <?= ($config['periodicidad_nomina'] ?? '') === 'quincenal' ? 'selected' : '' ?>>Quincenal</option>
+              <option value="semanal"   <?= ($config['periodicidad_nomina'] ?? '') === 'semanal'   ? 'selected' : '' ?>>Semanal</option>
             </select>
           </div>
           <div class="form-group">
             <label class="form-label">Salario mínimo vigente (COP)</label>
-            <input type="number" name="salario_minimo" class="form-control" value="<?=$config['salario_minimo']??1300000?>" step="1000">
+            <input type="number" name="salario_minimo" class="form-control" value="<?= $config['salario_minimo'] ?? 1300000 ?>" step="1000">
           </div>
           <div class="form-group">
             <label class="form-label">Auxilio de transporte (COP)</label>
-            <input type="number" name="auxilio_transporte" class="form-control" value="<?=$config['auxilio_transporte']??162000?>" step="1000">
+            <input type="number" name="auxilio_transporte" class="form-control" value="<?= $config['auxilio_transporte'] ?? 162000 ?>" step="1000">
           </div>
         </div>
       </div>
@@ -136,39 +140,37 @@ include __DIR__ . '/../../includes/header.php';
 
 <!-- Panel derecho -->
 <div style="display:flex;flex-direction:column;gap:16px">
-  <!-- Resumen de planta -->
+
   <div class="card">
     <div class="card-header"><span class="card-title">Resumen de planta</span></div>
     <div class="card-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <span class="text-muted">Empleados activos</span>
-        <span class="fw-600 text-blue" style="font-size:18px"><?=$totalEmp?></span>
+        <span class="fw-600 text-blue" style="font-size:18px"><?= $totalEmp ?></span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center">
         <span class="text-muted">Cargos activos</span>
-        <span class="fw-600" style="font-size:18px"><?=$totalCargos?></span>
+        <span class="fw-600" style="font-size:18px"><?= $totalCargos ?></span>
       </div>
       <div style="border-top:1px solid var(--border);padding-top:12px">
         <div class="text-muted" style="font-size:12px;margin-bottom:4px">Masa salarial mensual estimada</div>
-        <div class="fw-600 text-green" style="font-size:20px;font-family:Syne,sans-serif"><?=formatCOP($masaCostoMes)?></div>
+        <div class="fw-600 text-green" style="font-size:20px;font-family:Syne,sans-serif"><?= formatCOP($masaCostoMes) ?></div>
       </div>
     </div>
   </div>
 
-  <!-- Por departamento -->
   <div class="card">
     <div class="card-header"><span class="card-title">Por departamento</span></div>
     <div class="card-body" style="padding:0">
-      <?php foreach($porDepto as $d): ?>
+      <?php foreach ($porDepto as $d): ?>
       <div style="padding:12px 20px;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px"><?=htmlspecialchars($d['departamento'])?></span>
-        <span class="badge badge-blue"><?=$d['total']?></span>
+        <span style="font-size:13px"><?= htmlspecialchars($d['departamento']) ?></span>
+        <span class="badge badge-blue"><?= $d['total'] ?></span>
       </div>
       <?php endforeach; ?>
     </div>
   </div>
 
-  <!-- Info legal Colombia -->
   <div class="card">
     <div class="card-header"><span class="card-title" style="font-size:13px">Parámetros legales 2026</span></div>
     <div class="card-body" style="padding:16px 20px;font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:8px">
@@ -179,18 +181,28 @@ include __DIR__ . '/../../includes/header.php';
       <div style="display:flex;justify-content:space-between"><span>H. festiva</span><span class="fw-600">+75%</span></div>
     </div>
   </div>
+
 </div>
 </div>
 
 <script>
 async function guardarConfig(e) {
   e.preventDefault();
-  const btn = e.submitter; btn.disabled=true; btn.textContent='Guardando...';
-  const res = await fetch('', {method:'POST', body: new URLSearchParams(new FormData(document.getElementById('formConfig')))});
+  const btn = e.submitter;
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+  const res = await fetch('', {
+    method: 'POST',
+    body: new URLSearchParams(new FormData(document.getElementById('formConfig')))
+  });
   const data = await res.json();
   const m = document.getElementById('configMsg');
-  m.style.display='block'; m.className=data.ok?'alert-item green':'alert-error'; m.textContent=data.msg;
-  btn.disabled=false; btn.textContent='Guardar configuración';
+  m.style.display = 'block';
+  m.className = data.ok ? 'alert-item green' : 'alert-error';
+  m.textContent = data.msg;
+  btn.disabled = false;
+  btn.textContent = 'Guardar configuración';
 }
 </script>
+
 <?php include __DIR__ . '/../../includes/footer.php'; ?>
