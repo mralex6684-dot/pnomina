@@ -1,0 +1,19 @@
+# Configuración local sensible
+config/local.php
+
+# Logs
+*.log
+logs/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Dependencias PHP (si se agrega Composer en el futuro)
+vendor/
+composer.lock
