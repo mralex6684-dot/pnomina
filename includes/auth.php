@@ -37,6 +37,13 @@ function tienePermiso($permiso) {
     return isset($permisos[$permiso]) && $permisos[$permiso] === true;
 }
 
+// Es usuario normal (Empleado): no es Administrador ni Supervisor
+function esUsuarioNormal() {
+    iniciarSesion();
+    $rol = $_SESSION['rol_nombre'] ?? '';
+    return ($rol !== 'Administrador' && $rol !== 'Supervisor');
+}
+
 function login($email, $password) {
     $db = getDB();
     $stmt = $db->prepare("
@@ -50,14 +57,19 @@ function login($email, $password) {
 
     if ($usuario && password_verify($password, $usuario['password'])) {
         iniciarSesion();
-        $_SESSION['usuario_id']   = $usuario['id'];
+        $_SESSION['usuario_id']     = $usuario['id'];
         $_SESSION['usuario_nombre'] = $usuario['nombre'];
-        $_SESSION['usuario_email'] = $usuario['email'];
-        $_SESSION['rol_id']       = $usuario['rol_id'];
-        $_SESSION['rol_nombre']   = $usuario['rol_nombre'];
-        $_SESSION['permisos']     = json_decode($usuario['permisos'], true);
+        $_SESSION['usuario_email']  = $usuario['email'];
+        $_SESSION['rol_id']         = $usuario['rol_id'];
+        $_SESSION['rol_nombre']     = $usuario['rol_nombre'];
+        $_SESSION['permisos']       = json_decode($usuario['permisos'], true);
 
-        // Actualizar último login
+        // Vincular empleado automáticamente por email
+        $emp = $db->prepare("SELECT id FROM empleados WHERE email = ? AND activo = 1 LIMIT 1");
+        $emp->execute([$usuario['email']]);
+        $empleado = $emp->fetch();
+        $_SESSION['empleado_id'] = $empleado ? $empleado['id'] : null;
+
         $db->prepare("UPDATE usuarios SET ultimo_login = NOW() WHERE id = ?")->execute([$usuario['id']]);
         registrarHistorial('login', 'auth', 'Inicio de sesión exitoso');
         return true;
